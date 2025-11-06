@@ -8,6 +8,8 @@ import binascii
 from time import sleep
 import os.path
 import threading
+import asyncio
+import aiofiles
 
 DOMAIN = "jarolift"
 _LOGGER = logging.getLogger(__name__)
@@ -96,30 +98,24 @@ def BuildPacket(Grouping, Serial, Button, Counter, MSB, LSB, Hold):
     return "b64:" + packet.decode("utf-8")
 
 
-def ReadCounter(counter_file, serial):
+async def ReadCounter(counter_file, serial):
     filename = counter_file + hex(serial) + ".txt"
     if os.path.isfile(filename):
-        #fo = open(filename, "r")
-        #Counter = int(fo.readline())
-        #fo.close()
-        with open(filename, "r", encoding="utf-8") as fo:
-            Counter = int(fo.readline())
+        async with aiofiles.open(filename, mode="r", encoding="utf-8") as fo:
+            line = await fo.readline()
+            Counter = int(line)
         return Counter
     else:
         return 0
 
 
-def WriteCounter(counter_file, serial, Counter):
+async def WriteCounter(counter_file, serial, Counter):
     filename = counter_file + hex(serial) + ".txt"
-    #_LOGGER.warning("Writing to " + filename + ": " + str(Counter) )
-    #fo = open(filename, "w")
-    #fo.write(str(Counter))
-    #fo.close()
-    with open(filename, "w", encoding="utf-8") as fo:
-        fo.write(str(Counter))
+    async with aiofiles.open(filename, mode="w", encoding="utf-8") as fo:
+        await fo.write(str(Counter))
 
 
-def setup(hass, config):
+async def async_setup(hass, config) -> bool:
     remote_entity_id = config["jarolift"]["remote_entity_id"]
     MSB = int(config["jarolift"]["MSB"], 16)
     LSB = int(config["jarolift"]["LSB"], 16)
@@ -131,27 +127,27 @@ def setup(hass, config):
 
     counter_file = hass.config.path("counter_")
 
-    def handle_send_raw(call):
+    async def handle_send_raw(call):
         with mutex:
             packet = call.data.get("packet", "")
-            hass.services.call(
+            await hass.services.async_call(
                 "remote",
                 "send_command",
                 {"entity_id": remote_entity_id, "command": [packet]},
             )
 
-    def handle_send_command(call):
+    async def handle_send_command(call):
         Grouping = int(call.data.get("group", "0x0001"), 16)
         Serial = int(call.data.get("serial", "0x106aa01"), 16)
         rep_count = call.data.get("rep_count", 0)
         rep_delay = call.data.get("rep_delay", 0.2)
         Button = int(call.data.get("button", "0x2"), 16)
         Hold = call.data.get("hold", False)
-        RCounter = ReadCounter(counter_file, Serial)
+        RCounter = await ReadCounter(counter_file, Serial)
         Counter = int(call.data.get("counter", "0x0000"), 16)
         if Counter == 0:
             packet = BuildPacket(Grouping, Serial, Button, RCounter, MSB, LSB, Hold)
-            WriteCounter(counter_file, Serial, RCounter + 1)
+            await WriteCounter(counter_file, Serial, RCounter + 1)
         else:
             packet = BuildPacket(Grouping, Serial, Button, Counter, MSB, LSB, Hold)
 
@@ -161,18 +157,18 @@ def setup(hass, config):
             send_count = rep_count + 1
             for i in range( send_count ):
                 _LOGGER.debug(f"Sending: {Button} group: 0x{Grouping:04X} Serial: 0x{Serial:08X} repeat: {i}")
-                hass.services.call(
+                await hass.services.async_call(
                     "remote",
                     "send_command",
                     {"entity_id": remote_entity_id, "command": [packet]},
                 )
                 if i < send_count - 1:
                     # Only sleep when an additional command comes afterwards
-                    sleep(rep_delay)
+                    await asyncio.sleep(rep_delay)
             # This is the minimum delay between multiple different covers
-            sleep(DELAY)
+            await asyncio.sleep(DELAY)
 
-    def handle_learn(call):
+    async def handle_learn(call):
         Grouping = int(call.data.get("group", "0x0001"), 16)
         Serial = int(call.data.get("serial", "0x106aa01"), 16)
         Button = int("0xa", 16)
@@ -185,27 +181,27 @@ def setup(hass, config):
         packet = BuildPacket(Grouping, Serial, Button, UsedCounter, MSB, LSB, False)
 
         with mutex:
-            hass.services.call(
+            await hass.services.async_call(
                 "remote",
                 "send_command",
                 {"entity_id": remote_entity_id, "command": [packet]},
             )
-            sleep(1)
+            await asyncio.sleep(1)
             Button = int("0x4", 16)
             packet = BuildPacket(Grouping, Serial, Button, UsedCounter + 1, MSB, LSB, False)
-            hass.services.call(
+            await hass.services.async_call(
                 "remote",
                 "send_command",
                 {"entity_id": remote_entity_id, "command": [packet]},
             )
             if Counter == 0:
-                WriteCounter(counter_file, Serial, RCounter + 2)
+                await WriteCounter(counter_file, Serial, RCounter + 2)
 
-    def handle_clear(call):
+    async def handle_clear(call):
         Grouping = int(call.data.get("group", "0x0001"), 16)
         Serial = int(call.data.get("serial", "0x106aa01"), 16)
         Button = int("0xa", 16)
-        RCounter = ReadCounter(counter_file, Serial)
+        RCounter = await ReadCounter(counter_file, Serial)
         Counter = int(call.data.get("counter", "0x0000"), 16)
         if Counter == 0:
             UsedCounter = RCounter
@@ -214,27 +210,27 @@ def setup(hass, config):
         packet = BuildPacket(Grouping, Serial, Button, UsedCounter, MSB, LSB, False)
 
         with mutex:
-            hass.services.call(
+            await hass.services.async_call(
                 "remote",
                 "send_command",
                 {"entity_id": remote_entity_id, "command": [packet]},
             )
-            sleep(1)
+            await asyncio.sleep(1)
             Button = int("0x4", 16)
             for i in range(0, 6):
                 packet = BuildPacket(
                     Grouping, Serial, Button, UsedCounter + 1 + i, MSB, LSB, False
                 )
-                hass.services.call(
+                await hass.services.async_call(
                     "remote",
                     "send_command",
                     {"entity_id": remote_entity_id, "command": [packet]},
                 )
-                sleep(0.5)
-            sleep(1)
+                await asyncio.sleep(0.5)
+            await asyncio.sleep(1)
             Button = int("0x8", 16)
             packet = BuildPacket(Grouping, Serial, Button, UsedCounter + 7, MSB, LSB, False)
-            hass.services.call(
+            await hass.services.async_call(
                 "remote",
                 "send_command",
                 {"entity_id": remote_entity_id, "command": [packet]},
@@ -242,9 +238,9 @@ def setup(hass, config):
             if Counter == 0:
                 WriteCounter(counter_file, Serial, RCounter + 8)
 
-    hass.services.register(DOMAIN, "send_raw", handle_send_raw)
-    hass.services.register(DOMAIN, "send_command", handle_send_command)
-    hass.services.register(DOMAIN, "learn", handle_learn)
-    hass.services.register(DOMAIN, "clear", handle_clear)
+    hass.services.async_register(DOMAIN, "send_raw", handle_send_raw)
+    hass.services.async_register(DOMAIN, "send_command", handle_send_command)
+    hass.services.async_register(DOMAIN, "learn", handle_learn)
+    hass.services.async_register(DOMAIN, "clear", handle_clear)
 
     return True

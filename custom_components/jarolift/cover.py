@@ -10,9 +10,7 @@ from homeassistant.components.cover import (
 #    SUPPORT_SET_TILT_POSITION,
     PLATFORM_SCHEMA,
     CoverDeviceClass,
-    CoverEntity,
-    STATE_OPEN,
-    STATE_CLOSED,
+    CoverEntity
 )
 
 from homeassistant.const import CONF_NAME
@@ -50,16 +48,19 @@ DEPENDENCIES = ["jarolift"]
 _LOGGER = logging.getLogger(__name__)
 
 
-def setup_platform(hass, config, add_devices, discovery_info=None):
-    """Set up the Jarolift covers."""
-    covers = []
+async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     covers_conf = config.get(CONF_COVERS)
-
-    for cover in covers_conf:
-        covers.append(
-            JaroliftCover(cover[CONF_NAME], cover[CONF_GROUP], cover[CONF_SERIAL], cover[CONF_REP_COUNT], cover[CONF_REP_DELAY], hass)
-        )
-    add_devices(covers)
+    covers = [
+        JaroliftCover(
+            cover[CONF_NAME],
+            cover[CONF_GROUP],
+            cover[CONF_SERIAL],
+            cover[CONF_REP_COUNT],
+            cover[CONF_REP_DELAY],
+            hass
+        ) for cover in covers_conf
+    ]
+    async_add_entities(covers)
 
 
 class JaroliftCover(CoverEntity):
