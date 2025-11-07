@@ -11,8 +11,6 @@ from homeassistant.components.cover import (
     PLATFORM_SCHEMA,
     CoverDeviceClass,
     CoverEntity,
-    STATE_OPEN,
-    STATE_CLOSED,
 )
 
 from homeassistant.const import CONF_NAME
