@@ -93,7 +93,7 @@ class JaroliftCover(CoverEntity):
         return self._name
 
     @property
-    def group(self):
+    def jarolift_group(self):
         """Return the name of the group if any."""
         return self._group
 
